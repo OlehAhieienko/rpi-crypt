@@ -8,9 +8,9 @@ Uses debootstrap+nspawn under the hood.
 
 # Usage
 
-Edit variable at the top of `rpi-debootstrap-luks.sh` script and run it:
+Edit variables in `conf` file for your Raspberry Pi version (`rpi0.conf`, `rpi4.conf` or `rpi5.conf`) and run `rpi-crypt.sh` script with profile name as the only argument:
 ```shell
-sudo ./rpi-debootstrap-luks.sh
+sudo ./rpi-crypt.sh rpi5.conf
 ```
 
 

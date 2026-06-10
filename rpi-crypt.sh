@@ -1,35 +1,26 @@
 #!/bin/bash
 
-# Change this
-LUKS_PASSWORD='changeme'
-ROOT_PASSWORD='changeme'
-
-# Check those
-# Raspberry Pi 5:      '--iter-time 2000 --hash sha256 --key-size 512 --pbkdf=argon2id --cipher=aes-xts-plain64'
-# Rasbperry Pi 4:      '--iter-time 2000 --hash sha256 --key-size 256 --pbkdf=argon2id --cipher=xchacha20,aes-adiantum-plain64'
-# Rasbperry Pi Zero 2: '--iter-time 2000 --hash sha256 --key-size 256 --pbkdf=pbkdf2   --cipher=xchacha20,aes-adiantum-plain64'
-LUKS_FORMAT_ARGS='--iter-time 2000 --hash sha256 --key-size 512 --pbkdf=argon2id --cipher=aes-xts-plain64'
-
-# Ok as-is
-TARGET_IMAGE='rpi-luks-trixie.img'
-BUILD_LOG='rpi-luks-trixie.log'
-LUKS_DEV='cryptroot'
-DEBOOTSTRAP_SUITE='trixie' # Tested with 'trixie', but *may* work with others
-# Only from debian.org repo:
-DEBOOTSTRAP_PACKAGES+='raspi-firmware,cryptsetup,cryptsetup-initramfs,initramfs-tools,zstd,locales,console-setup,netbase,'
-# From both debian.org and raspberrypi.com repos:
-RPI_PACKAGES+='linux-image-rpi-v8 linux-headers-rpi-v8 linux-image-rpi-2712 linux-headers-rpi-2712 '    # Kernels and headers
-RPI_PACKAGES+='raspi-utils rpi-update rpi-eeprom rpifwcrypto raspi-config raspberrypi-archive-keyring ' # Raspberry Pi packages
-RPI_PACKAGES+='firmware-brcm80211 firmware-realtek firmware-mediatek '                                  # Firmware
-RPI_PACKAGES+='systemd-timesyncd ssh sudo parted curl ntfs-3g network-manager wireguard-tools file '    # System stuff
-RPI_PACKAGES+='zip unzip unrar xz-utils '                                                               # More system stuff
-# RPI_PACKAGES+='dropbear dropbear-initramfs '                                                            # For remote LUKS unlock
-
-
 set -u
 
 
 # Checks
+if [[ "${#}" -ne 1 ]]; then
+    echo "Usage: ${0} <profile.conf>"
+    exit 1
+fi
+
+if [[ "${1}" == *.conf ]]; then
+    PROFILE_PATH="${1}"
+else
+    PROFILE_PATH="${1}.conf"
+fi
+if [[ -f "${PROFILE_PATH}" ]]; then
+    source "${PROFILE_PATH}"
+else
+    echo "Profile ${PROFILE_PATH} does not exist"
+    exit 1
+fi
+
 if [[ "${EUID}" -ne 0 ]]; then
     echo 'Must be root' | tee --append "${BUILD_LOG}"
     exit 1
@@ -70,9 +61,9 @@ sync; udevadm settle
 
 
 echo 'Partition image' | tee --append "${BUILD_LOG}"
-parted --script --fix --align=opt "${TARGET_IMAGE}" mklabel gpt
-parted --script --fix --align=opt "${TARGET_IMAGE}" mkpart primary fat32 8M   512M
-parted --script --fix --align=opt "${TARGET_IMAGE}" mkpart primary ext4  512M 100%
+parted --script --fix --align=opt "${TARGET_IMAGE}" mklabel gpt &>>"${BUILD_LOG}"
+parted --script --fix --align=opt "${TARGET_IMAGE}" mkpart primary fat32 8M   512M &>>"${BUILD_LOG}"
+parted --script --fix --align=opt "${TARGET_IMAGE}" mkpart primary ext4  512M 100% &>>"${BUILD_LOG}"
 sync; udevadm settle
 
 
@@ -88,8 +79,8 @@ sync; udevadm settle
 
 # Just to make sure
 if ! cryptsetup --batch-mode isLuks "${_loop_dev}p2"; then
-    echo "Unable to format ${_loop_dev}p2 as LUKS device"
-    losetup --detach "${_loop_dev}"
+    echo "Unable to format ${_loop_dev}p2 as LUKS device" | tee --append "${BUILD_LOG}"
+    losetup --detach "${_loop_dev}" &>>"${BUILD_LOG}"
     exit 1
 fi
 
@@ -98,18 +89,18 @@ echo "${LUKS_PASSWORD}" | cryptsetup open "${_loop_dev}p2" "${LUKS_DEV}"
 sync; udevadm settle
 
 
-mkfs.fat "${_loop_dev}p1" >/dev/null
-mkfs.ext4 -q "/dev/mapper/${LUKS_DEV}"
+mkfs.fat "${_loop_dev}p1" &>>"${BUILD_LOG}"
+mkfs.ext4 -q "/dev/mapper/${LUKS_DEV}" &>>"${BUILD_LOG}"
 sync; udevadm settle
 
 _boot_part_partuuid=$(blkid --match-tag PARTUUID --output value "${_loop_dev}p1") # Goes into fstab
 _root_part_uuid=$(blkid --match-tag UUID --output value "${_loop_dev}p2") # Goes into crypttab and cmdline.txt
 
-mount "/dev/mapper/${LUKS_DEV}" "${_mnt_dir}"
+mount "/dev/mapper/${LUKS_DEV}" "${_mnt_dir}" &>>"${BUILD_LOG}"
 sync; udevadm settle
 
 mkdir --parents "${_mnt_dir}/boot/firmware" 2>/dev/null || true
-mount "${_loop_dev}p1" "${_mnt_dir}/boot/firmware"
+mount "${_loop_dev}p1" "${_mnt_dir}/boot/firmware" &>>"${BUILD_LOG}"
 sync; udevadm settle
 
 
