@@ -1,5 +1,8 @@
 #!/bin/bash
 
+
+# For debug:
+# set -ux
 set -u
 
 
@@ -36,16 +39,23 @@ if [[ -f "${TARGET_IMAGE}" ]]; then
     exit 1
 fi
 
-if [[ -f "/dev/mapper/${LUKS_DEV}" ]]; then
+if [[ -e "/dev/mapper/${LUKS_DEV}" ]]; then
     echo "Target /dev/mapper/${LUKS_DEV} already exist" | tee --append "${BUILD_LOG}"
     exit 1
 fi
 
 
 _time_start=$(date +'%Y-%m-%d %H:%M:%S')
-
 echo -e "\nBuild started at ${_time_start}" | tee "${BUILD_LOG}"
-echo -e "Log saved as ${BUILD_LOG}\n" | tee --append "${BUILD_LOG}"
+echo -e '\nBuild options:' | tee --append "${BUILD_LOG}"
+echo "TARGET_IMAGE:         ${TARGET_IMAGE}" | tee --append "${BUILD_LOG}"
+echo "BUILD_LOG:            ${BUILD_LOG}" | tee --append "${BUILD_LOG}"
+echo "DEBOOTSTRAP_SUITE:    ${DEBOOTSTRAP_SUITE}" | tee --append "${BUILD_LOG}"
+echo "LUKS_DEV:             ${LUKS_DEV}" | tee --append "${BUILD_LOG}"
+echo "LUKS_FORMAT_ARGS:     ${LUKS_FORMAT_ARGS}" | tee --append "${BUILD_LOG}"
+echo "DEBOOTSTRAP_PACKAGES: ${DEBOOTSTRAP_PACKAGES}" | tee --append "${BUILD_LOG}"
+echo "RPI_PACKAGES:         ${RPI_PACKAGES}" | tee --append "${BUILD_LOG}"
+echo ''
 
 
 echo 'Install dependencies' | tee --append "${BUILD_LOG}"
@@ -56,6 +66,7 @@ apt-get install \
 
 echo 'Create image (takes some time)' | tee --append "${BUILD_LOG}"
 _mnt_dir=$(mktemp --directory)
+echo "_mnt_dir: ${_mnt_dir}" &>>"${BUILD_LOG}"
 dd if=/dev/zero of="${TARGET_IMAGE}" bs=1M count=3000 oflag=direct &>>"${BUILD_LOG}"
 sync; udevadm settle
 
@@ -123,7 +134,7 @@ URIs: https://archive.raspberrypi.com/debian/
 Suites: ${DEBOOTSTRAP_SUITE}
 Components: main
 Signed-By: /usr/share/keyrings/raspberrypi-archive-keyring.pgp
-" > "${_mnt_dir}/etc/apt/sources.list.d/raspi.sources"
+" | tee "${_mnt_dir}/etc/apt/sources.list.d/raspi.sources"
 
 # TODO: Download key to make script work on vanilla Debian
 install --mode=0644 --owner=root --group=root \
@@ -134,15 +145,15 @@ install --mode=0644 --owner=root --group=root \
 echo 'Update fstab' | tee --append "${BUILD_LOG}"
 echo "proc            /proc           proc    defaults          0       0
 PARTUUID=${_boot_part_partuuid}  /boot/firmware  vfat    defaults          0       2
-/dev/mapper/${LUKS_DEV}  /               ext4    defaults,noatime  0       1" > "${_mnt_dir}/etc/fstab"
+/dev/mapper/${LUKS_DEV}  /               ext4    defaults,noatime  0       1" | tee "${_mnt_dir}/etc/fstab"
 
 echo 'Update crypttab' | tee --append "${BUILD_LOG}"
-echo "${LUKS_DEV} UUID=${_root_part_uuid} none luks" > "${_mnt_dir}/etc/crypttab"
+echo "${LUKS_DEV} UUID=${_root_part_uuid} none luks" | tee "${_mnt_dir}/etc/crypttab"
 
 # To avoid same mistake again: 'cryptdevice=...' does not work on Debian+initramfs
 # https://wiki.archlinux.org/title/Dm-crypt/System_configuration#cryptdevice
 echo 'Update cmdline.txt' | tee --append "${BUILD_LOG}"
-echo "console=serial0,115200 console=tty1 root=/dev/mapper/${LUKS_DEV} cryptopts=target=${LUKS_DEV},source=UUID=${_root_part_uuid},luks rootfstype=ext4 fsck.repair=yes rootwait" > "${_mnt_dir}/boot/firmware/cmdline.txt"
+echo "console=serial0,115200 console=tty1 root=/dev/mapper/${LUKS_DEV} cryptopts=target=${LUKS_DEV},source=UUID=${_root_part_uuid},luks rootfstype=ext4 fsck.repair=yes rootwait" | tee "${_mnt_dir}/boot/firmware/cmdline.txt"
 
 echo 'Update config.txt' | tee --append "${BUILD_LOG}"
 echo 'dtparam=audio=on
@@ -155,16 +166,17 @@ disable_fw_kms_setup=1
 arm_64bit=1
 disable_overscan=1
 arm_boost=1
-[all]' > "${_mnt_dir}/boot/firmware/config.txt"
+[all]' | tee "${_mnt_dir}/boot/firmware/config.txt"
 
 # TODO: Check if we need it
-echo 'CRYPTSETUP=y' >> "${_mnt_dir}/etc/cryptsetup-initramfs/conf-hook"
+echo 'CRYPTSETUP=y' | tee --append "${_mnt_dir}/etc/cryptsetup-initramfs/conf-hook"
 
 echo 'Update locale' | tee --append "${BUILD_LOG}"
 echo 'en_US.UTF-8 UTF-8
 en_GB.UTF-8 UTF-8
 uk_UA.UTF-8 UTF-8
-' > "${_mnt_dir}/etc/locale.gen"
+' | tee "${_mnt_dir}/etc/locale.gen"
+
 
 echo 'LANG=en_US.UTF-8
 LC_TIME=en_US.UTF-8
@@ -176,7 +188,7 @@ LC_TELEPHONE=en_US.UTF-8
 LC_MONETARY=en_US.UTF-8
 LC_ADDRESS=en_US.UTF-8
 LC_IDENTIFICATION=en_US.UTF-8
-' > "${_mnt_dir}/etc/default/locale"
+' | tee "${_mnt_dir}/etc/default/locale"
 
 echo 'Enable predictable network interface names'
 ln -sf /dev/null "${_mnt_dir}/etc/systemd/network/99-default.link"
@@ -195,8 +207,8 @@ systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get install --ye
 
 
 echo 'Set hostname' | tee --append "${BUILD_LOG}"
-echo 'raspberrypi' > "${_mnt_dir}/etc/hostname"
-echo '127.0.0.1       localhost       raspberrypi' > "${_mnt_dir}/etc/hosts"
+echo 'raspberrypi' | tee "${_mnt_dir}/etc/hostname"
+echo '127.0.0.1       localhost       raspberrypi' | tee "${_mnt_dir}/etc/hosts"
 
 
 echo 'Set root password' | tee --append "${BUILD_LOG}"
