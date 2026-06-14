@@ -44,6 +44,25 @@ if [[ -e "/dev/mapper/${LUKS_DEV}" ]]; then
     exit 1
 fi
 
+if [[ "${LUKS_PASSWORD}" == 'changeme' ]] || [[ "${ROOT_PASSWORD}" == 'changeme' ]]; then
+    echo 'Change default passwords for LUKS and root user in configuration file'
+    exit 1
+fi
+
+
+cleanup() {
+    echo 'Unmount image' | tee --append "${BUILD_LOG}"
+    # shellcheck disable=SC2129
+    umount "${_mnt_dir}/boot/firmware" &>>"${BUILD_LOG}"
+    umount "${_mnt_dir}" &>>"${BUILD_LOG}"
+    cryptsetup close "${LUKS_DEV}" &>>"${BUILD_LOG}"
+    sync; udevadm settle
+
+    losetup --detach "${_loop_dev}" &>>"${BUILD_LOG}"
+    sync; udevadm settle
+}
+trap 'cleanup' ERR INT
+
 
 _time_start=$(date +'%Y-%m-%d %H:%M:%S')
 echo -e "\nBuild started at ${_time_start}" | tee "${BUILD_LOG}"
@@ -72,6 +91,7 @@ sync; udevadm settle
 
 
 echo 'Partition image' | tee --append "${BUILD_LOG}"
+# shellcheck disable=SC2129
 parted --script --fix --align=opt "${TARGET_IMAGE}" mklabel gpt &>>"${BUILD_LOG}"
 parted --script --fix --align=opt "${TARGET_IMAGE}" mkpart primary fat32 8M   512M &>>"${BUILD_LOG}"
 parted --script --fix --align=opt "${TARGET_IMAGE}" mkpart primary ext4  512M 100% &>>"${BUILD_LOG}"
@@ -200,6 +220,7 @@ systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" locale-gen &>>"${BUI
 
 
 echo 'Update system and install Raspberry Pis specific packages' | tee --append "${BUILD_LOG}"
+# shellcheck disable=SC2129
 systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get update &>>"${BUILD_LOG}"
 systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get dist-upgrade --yes &>>"${BUILD_LOG}"
 # shellcheck disable=SC2086
@@ -216,6 +237,7 @@ echo "root:${ROOT_PASSWORD}" | chpasswd --crypt-method YESCRYPT --root "${_mnt_d
 
 
 # Initramfs rebuilt during packages installation - no need to do it manually
+# Note: this will work only if linux-image-rpi-* already installed
 # echo 'Build initramfs' | tee --append "${BUILD_LOG}"
 # for _kernel_path in "${_mnt_dir}/usr/lib/modules/"*; do
 #     _kernel=$(echo "${_kernel_path}" | awk -F'/' '{print $NF}')
@@ -230,14 +252,7 @@ echo "sudo systemd-nspawn --quiet --no-pager --directory=${_mnt_dir} /bin/bash"
 read -N 1 -r
 
 
-echo 'Unmount image' | tee --append "${BUILD_LOG}"
-umount "${_mnt_dir}/boot/firmware" &>>"${BUILD_LOG}"
-umount "${_mnt_dir}" &>>"${BUILD_LOG}"
-cryptsetup close "${LUKS_DEV}" &>>"${BUILD_LOG}"
-sync; udevadm settle
-
-losetup --detach "${_loop_dev}" &>>"${BUILD_LOG}"
-sync; udevadm settle
+cleanup
 
 
 echo -e '\nDone' | tee --append "${BUILD_LOG}"
