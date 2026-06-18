@@ -21,7 +21,7 @@ After flashing image and booting, you can:
 - To expand root partition (can be done on live system):
 ```shell
 parted --script --fix --align=opt /dev/mmcblk0 resizepart 2 100%
-cryptsetup resize cryptroot 100%
+cryptsetup resize cryptroot
 resize2fs /dev/mapper/cryptroot
 ```
 
