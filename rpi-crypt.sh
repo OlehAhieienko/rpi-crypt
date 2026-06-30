@@ -1,23 +1,85 @@
 #!/bin/bash
 
 
-# For debug:
-# set -ux
 set -u
 
 
-# Checks
-if [[ "${#}" -ne 1 ]]; then
-    echo "Usage: ${0} <profile.conf>"
+show_help() {
+    echo "Usage: ${0} [--debug] <profile.conf>"
+    echo '  --help, -h          - show this help and exit'
+    echo '  --debug             - verbose logging, pause run after failure or before finish'
+    echo '                        WARNING: This will make passwords visible in logs'
+    echo '  profile.conf        - required: name/path to profile'
+    exit
+}
+
+cleanup() {
+    echo 'Unmount image' | tee --append "${BUILD_LOG}"
+    # shellcheck disable=SC2129
+    if [[ -n "${_mnt_dir}" ]]; then
+        umount "${_mnt_dir}/boot/firmware" &>>"${BUILD_LOG}"
+        umount "${_mnt_dir}" &>>"${BUILD_LOG}"
+        sync; udevadm settle
+    fi
+
+    cryptsetup close "${LUKS_DEV}" &>>"${BUILD_LOG}"
+    sync; udevadm settle
+
+    losetup --detach "${_loop_dev}" &>>"${BUILD_LOG}"
+    sync; udevadm settle
+}
+
+cleanup_exit() {
+    echo "Build failed. Command exited with ${?} - see ${BUILD_LOG} for details."
+
+    if [[ "${DEBUG_ON}" -eq 1 ]]; then
+        echo -e "\nImage mounted as ${_mnt_dir}"
+        echo 'To chroot:'
+        echo "sudo systemd-nspawn --quiet --no-pager --directory=${_mnt_dir} /bin/bash"
+        read -N 1 -r
+    fi
+
+    cleanup
     exit 1
+}
+
+
+# Checks
+DEBUG_ON=0
+if [[ "${#}" -eq 1 ]]; then
+    # Script started with '-h', '--help' or with '--debug', but without profile name
+    if [[ "${1}" == '-h' ]] || [[ "${1}" == '--help' ]] || [[ "${1}" == '--debug' ]]; then
+        show_help
+    fi
+
+    # The only argument is profile name
+    if [[ "${1}" == *.conf ]]; then
+        PROFILE_PATH="${1}"
+    else
+        PROFILE_PATH="${1}.conf"
+    fi
+elif [[ "${#}" -eq 2 ]]; then
+    if [[ "${1}" == '--debug' ]]; then
+        set -x
+        DEBUG_ON=1
+    else
+        # Script started with two arguments, but first one is not '--debug'
+        show_help
+    fi
+
+    # Second argument is profile name
+    if [[ "${2}" == *.conf ]]; then
+        PROFILE_PATH="${2}"
+    else
+        PROFILE_PATH="${2}.conf"
+    fi
+else
+    show_help
 fi
 
-if [[ "${1}" == *.conf ]]; then
-    PROFILE_PATH="${1}"
-else
-    PROFILE_PATH="${1}.conf"
-fi
+
 if [[ -f "${PROFILE_PATH}" ]]; then
+    # shellcheck disable=SC1090
     source "${PROFILE_PATH}"
 else
     echo "Profile ${PROFILE_PATH} does not exist"
@@ -41,7 +103,9 @@ fi
 
 if [[ -e "/dev/mapper/${LUKS_DEV}" ]]; then
     echo "Target /dev/mapper/${LUKS_DEV} already exist" | tee --append "${BUILD_LOG}"
-    exit 1
+
+    # Do not run cleanup, as mapper device may be used by live system
+    exit
 fi
 
 if [[ "${LUKS_PASSWORD}" == 'changeme' ]] || [[ "${ROOT_PASSWORD}" == 'changeme' ]]; then
@@ -50,24 +114,14 @@ if [[ "${LUKS_PASSWORD}" == 'changeme' ]] || [[ "${ROOT_PASSWORD}" == 'changeme'
 fi
 
 
-cleanup() {
-    echo 'Unmount image' | tee --append "${BUILD_LOG}"
-    # shellcheck disable=SC2129
-    umount "${_mnt_dir}/boot/firmware" &>>"${BUILD_LOG}"
-    umount "${_mnt_dir}" &>>"${BUILD_LOG}"
-    cryptsetup close "${LUKS_DEV}" &>>"${BUILD_LOG}"
-    sync; udevadm settle
-
-    losetup --detach "${_loop_dev}" &>>"${BUILD_LOG}"
-    sync; udevadm settle
-}
-trap 'cleanup' ERR INT
+trap 'cleanup_exit' ERR INT
 
 
 _time_start=$(date +'%Y-%m-%d %H:%M:%S')
 echo -e "\nBuild started at ${_time_start}" | tee "${BUILD_LOG}"
 echo -e '\nBuild options:' | tee --append "${BUILD_LOG}"
 echo "TARGET_IMAGE:         ${TARGET_IMAGE}" | tee --append "${BUILD_LOG}"
+echo "TARGET_IMAGE_SIZE:    ${TARGET_IMAGE_SIZE}M" | tee --append "${BUILD_LOG}"
 echo "BUILD_LOG:            ${BUILD_LOG}" | tee --append "${BUILD_LOG}"
 echo "DEBOOTSTRAP_SUITE:    ${DEBOOTSTRAP_SUITE}" | tee --append "${BUILD_LOG}"
 echo "LUKS_DEV:             ${LUKS_DEV}" | tee --append "${BUILD_LOG}"
@@ -78,15 +132,16 @@ echo ''
 
 
 echo 'Install dependencies' | tee --append "${BUILD_LOG}"
+apt-get update &>>"${BUILD_LOG}"
 apt-get install \
     --yes --no-install-recommends --no-install-suggests \
-    cryptsetup debootstrap parted systemd-container &>>"${BUILD_LOG}"
+    cryptsetup parted systemd-container &>>"${BUILD_LOG}"
 
 
 echo 'Create image (takes some time)' | tee --append "${BUILD_LOG}"
 _mnt_dir=$(mktemp --directory)
 echo "_mnt_dir: ${_mnt_dir}" &>>"${BUILD_LOG}"
-dd if=/dev/zero of="${TARGET_IMAGE}" bs=1M count=3000 oflag=direct &>>"${BUILD_LOG}"
+dd if=/dev/zero of="${TARGET_IMAGE}" bs=1M count="${TARGET_IMAGE_SIZE}" oflag=direct &>>"${BUILD_LOG}"
 sync; udevadm settle
 
 
@@ -111,8 +166,7 @@ sync; udevadm settle
 # Just to make sure
 if ! cryptsetup --batch-mode isLuks "${_loop_dev}p2"; then
     echo "Unable to format ${_loop_dev}p2 as LUKS device" | tee --append "${BUILD_LOG}"
-    losetup --detach "${_loop_dev}" &>>"${BUILD_LOG}"
-    exit 1
+    cleanup_exit
 fi
 
 
@@ -139,7 +193,8 @@ sync; udevadm settle
 # 'The default, with no --variant=X argument, is to create a base Debian installation with all packages of priority required and important, including apt.'
 # Use '--variant minbase' for 'only includes required packages and apt'
 echo 'Debootstrap Debian' | tee --append "${BUILD_LOG}"
-debootstrap \
+export DEBOOTSTRAP_DIR="$(pwd)/debootstrap"
+"${DEBOOTSTRAP_DIR}/debootstrap" \
             --arch arm64 \
             --include="${DEBOOTSTRAP_PACKAGES}" \
             --components='main,contrib,non-free,non-free-firmware' \
@@ -233,7 +288,7 @@ echo '127.0.0.1       localhost       raspberrypi' | tee "${_mnt_dir}/etc/hosts"
 
 
 echo 'Set root password' | tee --append "${BUILD_LOG}"
-echo "root:${ROOT_PASSWORD}" | chpasswd --crypt-method YESCRYPT --root "${_mnt_dir}" &>>"${BUILD_LOG}"
+echo "root:${ROOT_PASSWORD}" | systemd-nspawn --quiet --no-pager --pipe --directory="${_mnt_dir}" chpasswd --crypt-method YESCRYPT &>>"${BUILD_LOG}"
 
 
 # Initramfs rebuilt during packages installation - no need to do it manually
@@ -246,10 +301,12 @@ echo "root:${ROOT_PASSWORD}" | chpasswd --crypt-method YESCRYPT --root "${_mnt_d
 # done
 
 
-echo -e "\nImage mounted as ${_mnt_dir} - you can customize it now or press any key to continue"
-echo 'To chroot:'
-echo "sudo systemd-nspawn --quiet --no-pager --directory=${_mnt_dir} /bin/bash"
-read -N 1 -r
+if [[ "${DEBUG_ON}" -eq 1 ]]; then
+    echo -e "\nImage mounted as ${_mnt_dir} - you can customize it now or press any key to continue"
+    echo 'To chroot:'
+    echo "sudo systemd-nspawn --quiet --no-pager --directory=${_mnt_dir} /bin/bash"
+    read -N 1 -r
+fi
 
 
 cleanup
