@@ -13,7 +13,7 @@ Uses debootstrap+nspawn under the hood.
 git clone --recurse-submodules https://github.com/OlehAhieienko/rpi-crypt.git
 ```
 
-- Edit variables in `conf` file for your Raspberry Pi version (`rpi0.conf`, `rpi4.conf` or `rpi5.conf`) and run `rpi-crypt.sh` script with profile name as the only argument:
+- Edit variables in `conf` file for your Raspberry Pi version (`rpi0.conf`, `rpi4.conf` or `rpi5.conf`) and run `rpi-crypt.sh` script with profile name:
 ```shell
 cd rpi-crypt
 sudo ./rpi-crypt.sh rpi5.conf

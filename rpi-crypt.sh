@@ -126,8 +126,8 @@ echo "BUILD_LOG:            ${BUILD_LOG}" | tee --append "${BUILD_LOG}"
 echo "DEBOOTSTRAP_SUITE:    ${DEBOOTSTRAP_SUITE}" | tee --append "${BUILD_LOG}"
 echo "LUKS_DEV:             ${LUKS_DEV}" | tee --append "${BUILD_LOG}"
 echo "LUKS_FORMAT_ARGS:     ${LUKS_FORMAT_ARGS}" | tee --append "${BUILD_LOG}"
-echo "DEBOOTSTRAP_PACKAGES: ${DEBOOTSTRAP_PACKAGES}" | tee --append "${BUILD_LOG}"
-echo "RPI_PACKAGES:         ${RPI_PACKAGES}" | tee --append "${BUILD_LOG}"
+echo "DEBOOTSTRAP_PACKAGES:" "${DEBOOTSTRAP_PACKAGES[@]}" | tee --append "${BUILD_LOG}"
+echo "RPI_PACKAGES:        " "${RPI_PACKAGES[@]}" | tee --append "${BUILD_LOG}"
 echo ''
 
 
@@ -193,10 +193,11 @@ sync; udevadm settle
 # 'The default, with no --variant=X argument, is to create a base Debian installation with all packages of priority required and important, including apt.'
 # Use '--variant minbase' for 'only includes required packages and apt'
 echo 'Debootstrap Debian' | tee --append "${BUILD_LOG}"
+_debootstrap_packages=$(IFS=','; echo "${DEBOOTSTRAP_PACKAGES[*]}") # List to comma separated string
 export DEBOOTSTRAP_DIR="$(pwd)/debootstrap"
 "${DEBOOTSTRAP_DIR}/debootstrap" \
             --arch arm64 \
-            --include="${DEBOOTSTRAP_PACKAGES}" \
+            --include="${_debootstrap_packages}" \
             --components='main,contrib,non-free,non-free-firmware' \
             "${DEBOOTSTRAP_SUITE}" \
             "${_mnt_dir}" \
@@ -278,8 +279,7 @@ echo 'Update system and install Raspberry Pis specific packages' | tee --append 
 # shellcheck disable=SC2129
 systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get update &>>"${BUILD_LOG}"
 systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get dist-upgrade --yes &>>"${BUILD_LOG}"
-# shellcheck disable=SC2086
-systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get install --yes --no-install-recommends --no-install-suggests ${RPI_PACKAGES} &>>"${BUILD_LOG}"
+systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get install --yes --no-install-recommends --no-install-suggests "${RPI_PACKAGES[@]}" &>>"${BUILD_LOG}"
 
 
 echo 'Set hostname' | tee --append "${BUILD_LOG}"
