@@ -131,11 +131,14 @@ echo "RPI_PACKAGES:        " "${RPI_PACKAGES[@]}" | tee --append "${BUILD_LOG}"
 echo ''
 
 
-echo 'Install dependencies' | tee --append "${BUILD_LOG}"
+echo 'Check dependencies' | tee --append "${BUILD_LOG}"
 apt-get update &>>"${BUILD_LOG}"
-apt-get install \
-    --yes --no-install-recommends --no-install-suggests \
-    cryptsetup parted systemd-container &>>"${BUILD_LOG}"
+for _pkg in cryptsetup:cryptsetup parted:parted systemd-nspawn:systemd-container; do
+    if ! command -v "${_pkg%:*}" &>/dev/null; then
+        echo "Install ${_pkg#*:}" | tee --append "${BUILD_LOG}"
+        apt-get install --yes --no-install-recommends --no-install-suggests "${_pkg#*:}" &>>"${BUILD_LOG}"
+    fi
+done
 
 
 echo 'Create image (takes some time)' | tee --append "${BUILD_LOG}"
@@ -194,7 +197,8 @@ sync; udevadm settle
 # Use '--variant minbase' for 'only includes required packages and apt'
 echo 'Debootstrap Debian' | tee --append "${BUILD_LOG}"
 _debootstrap_packages=$(IFS=','; echo "${DEBOOTSTRAP_PACKAGES[*]}") # List to comma separated string
-export DEBOOTSTRAP_DIR="$(pwd)/debootstrap"
+DEBOOTSTRAP_DIR="$(pwd)/debootstrap"
+export DEBOOTSTRAP_DIR
 "${DEBOOTSTRAP_DIR}/debootstrap" \
             --arch arm64 \
             --include="${_debootstrap_packages}" \
@@ -212,10 +216,12 @@ Components: main
 Signed-By: /usr/share/keyrings/raspberrypi-archive-keyring.pgp
 " | tee "${_mnt_dir}/etc/apt/sources.list.d/raspi.sources"
 
-# TODO: Download key to make script work on vanilla Debian
-install --mode=0644 --owner=root --group=root \
-        /usr/share/keyrings/raspberrypi-archive-keyring.pgp \
-        "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp"
+
+curl --location --silent \
+    --output "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp" \
+    https://github.com/RPi-Distro/pi-gen/raw/refs/heads/arm64/stage0/00-configure-apt/files/raspberrypi-archive-keyring.pgp
+chown root:root "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp"
+chmod 0644 "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp"
 
 
 echo 'Update fstab' | tee --append "${BUILD_LOG}"
@@ -277,9 +283,9 @@ systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" locale-gen &>>"${BUI
 
 echo 'Update system and install Raspberry Pis specific packages' | tee --append "${BUILD_LOG}"
 # shellcheck disable=SC2129
-systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get update &>>"${BUILD_LOG}"
-systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get dist-upgrade --yes &>>"${BUILD_LOG}"
-systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" apt-get install --yes --no-install-recommends --no-install-suggests "${RPI_PACKAGES[@]}" &>>"${BUILD_LOG}"
+systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" --setenv=DEBIAN_FRONTEND=noninteractive apt-get update &>>"${BUILD_LOG}"
+systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" --setenv=DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade --yes &>>"${BUILD_LOG}"
+systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" --setenv=DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends --no-install-suggests "${RPI_PACKAGES[@]}" &>>"${BUILD_LOG}"
 
 
 echo 'Set hostname' | tee --append "${BUILD_LOG}"

@@ -1,7 +1,8 @@
 # About
 
 Script builds flashable images for Raspberry Pi (4/5/Zero 2) with LUKS-encrypted root partition.
-Uses debootstrap+nspawn under the hood.
+
+Uses nspawn with debootstrap under the hood.
 
 :warning::warning::warning: Software is on early development stage - **do not** use for prod or critical systems :warning::warning::warning:
 
@@ -31,13 +32,11 @@ cryptsetup resize cryptroot
 resize2fs /dev/mapper/cryptroot
 ```
 
-- Install desktop
-```shell
-# TODO
-```
-
 
 # Documentation
+- https://gitlab.mister-muffin.de/josch/mmdebstrap/
+- https://salsa.debian.org/installer-team/debootstrap
+- https://www.freedesktop.org/software/systemd/man/latest/systemd-nspawn.html
 - https://wiki.debian.org/Debootstrap
 - https://wiki.debian.org/nspawn
 - https://wiki.archlinux.org/title/Dm-crypt/Encrypting_an_entire_system
