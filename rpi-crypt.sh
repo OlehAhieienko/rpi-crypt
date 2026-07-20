@@ -214,7 +214,7 @@ URIs: https://archive.raspberrypi.com/debian/
 Suites: ${DEBOOTSTRAP_SUITE}
 Components: main
 Signed-By: /usr/share/keyrings/raspberrypi-archive-keyring.pgp
-" | tee "${_mnt_dir}/etc/apt/sources.list.d/raspi.sources"
+" | tee "${_mnt_dir}/etc/apt/sources.list.d/raspi.sources" | tee --append "${BUILD_LOG}" >/dev/null
 
 
 curl --location --silent \
@@ -227,15 +227,16 @@ chmod 0644 "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp"
 echo 'Update fstab' | tee --append "${BUILD_LOG}"
 echo "proc            /proc           proc    defaults          0       0
 PARTUUID=${_boot_part_partuuid}  /boot/firmware  vfat    defaults          0       2
-/dev/mapper/${LUKS_DEV}  /               ext4    defaults,noatime  0       1" | tee "${_mnt_dir}/etc/fstab"
+/dev/mapper/${LUKS_DEV}  /               ext4    defaults,noatime  0       1
+" | tee "${_mnt_dir}/etc/fstab" | tee --append "${BUILD_LOG}" >/dev/null
 
 echo 'Update crypttab' | tee --append "${BUILD_LOG}"
-echo "${LUKS_DEV} UUID=${_root_part_uuid} none luks" | tee "${_mnt_dir}/etc/crypttab"
+echo "${LUKS_DEV} UUID=${_root_part_uuid} none luks" | tee "${_mnt_dir}/etc/crypttab" | tee --append "${BUILD_LOG}" >/dev/null
 
 # To avoid same mistake again: 'cryptdevice=...' does not work on Debian+initramfs
 # https://wiki.archlinux.org/title/Dm-crypt/System_configuration#cryptdevice
 echo 'Update cmdline.txt' | tee --append "${BUILD_LOG}"
-echo "console=serial0,115200 console=tty1 root=/dev/mapper/${LUKS_DEV} cryptopts=target=${LUKS_DEV},source=UUID=${_root_part_uuid},luks rootfstype=ext4 fsck.repair=yes rootwait" | tee "${_mnt_dir}/boot/firmware/cmdline.txt"
+echo "console=serial0,115200 console=tty1 root=/dev/mapper/${LUKS_DEV} cryptopts=target=${LUKS_DEV},source=UUID=${_root_part_uuid},luks rootfstype=ext4 fsck.repair=yes rootwait" | tee "${_mnt_dir}/boot/firmware/cmdline.txt" | tee --append "${BUILD_LOG}" >/dev/null
 
 echo 'Update config.txt' | tee --append "${BUILD_LOG}"
 echo 'dtparam=audio=on
@@ -248,16 +249,16 @@ disable_fw_kms_setup=1
 arm_64bit=1
 disable_overscan=1
 arm_boost=1
-[all]' | tee "${_mnt_dir}/boot/firmware/config.txt"
+[all]' | tee "${_mnt_dir}/boot/firmware/config.txt" | tee --append "${BUILD_LOG}" >/dev/null
 
 # TODO: Check if we need it
-echo 'CRYPTSETUP=y' | tee --append "${_mnt_dir}/etc/cryptsetup-initramfs/conf-hook"
+echo 'CRYPTSETUP=y' | tee --append "${_mnt_dir}/etc/cryptsetup-initramfs/conf-hook" | tee --append "${BUILD_LOG}" >/dev/null
 
 echo 'Update locale' | tee --append "${BUILD_LOG}"
 echo 'en_US.UTF-8 UTF-8
 en_GB.UTF-8 UTF-8
 uk_UA.UTF-8 UTF-8
-' | tee "${_mnt_dir}/etc/locale.gen"
+' | tee "${_mnt_dir}/etc/locale.gen" | tee --append "${BUILD_LOG}" >/dev/null
 
 
 echo 'LANG=en_US.UTF-8
@@ -270,14 +271,14 @@ LC_TELEPHONE=en_US.UTF-8
 LC_MONETARY=en_US.UTF-8
 LC_ADDRESS=en_US.UTF-8
 LC_IDENTIFICATION=en_US.UTF-8
-' | tee "${_mnt_dir}/etc/default/locale"
+' | tee "${_mnt_dir}/etc/default/locale" | tee --append "${BUILD_LOG}" >/dev/null
 
 echo 'Enable predictable network interface names'
 ln -sf /dev/null "${_mnt_dir}/etc/systemd/network/99-default.link"
 ln -sf /dev/null "${_mnt_dir}/etc/systemd/network/73-usb-net-by-mac.link"
 
 
-# TODO: Check if we need it
+# TODO: Check if we need it. It is likely done during packages installation.
 systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" locale-gen &>>"${BUILD_LOG}"
 
 
@@ -289,8 +290,8 @@ systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" --setenv=DEBIAN_FRON
 
 
 echo 'Set hostname' | tee --append "${BUILD_LOG}"
-echo 'raspberrypi' | tee "${_mnt_dir}/etc/hostname"
-echo '127.0.0.1       localhost       raspberrypi' | tee "${_mnt_dir}/etc/hosts"
+echo 'raspberrypi' | tee "${_mnt_dir}/etc/hostname" | tee --append "${BUILD_LOG}" >/dev/null
+echo '127.0.0.1       localhost       raspberrypi' | tee "${_mnt_dir}/etc/hosts" | tee --append "${BUILD_LOG}" >/dev/null
 
 
 echo 'Set root password' | tee --append "${BUILD_LOG}"

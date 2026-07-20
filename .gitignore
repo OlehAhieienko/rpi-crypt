@@ -2,3 +2,6 @@
 *.log
 *.sha256
 *.xz
+configs/*
+custom/*
+out/*
