@@ -4,7 +4,7 @@ Script builds flashable images for Raspberry Pi (4/5/Zero 2) with LUKS-encrypted
 
 Uses nspawn with debootstrap under the hood.
 
-:warning::warning::warning: Software is on early development stage - **do not** use for prod or critical systems :warning::warning::warning:
+:warning: Software still in beta - **do not** use for prod or critical systems :warning:
 
 
 # Usage

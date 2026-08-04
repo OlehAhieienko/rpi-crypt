@@ -1,9 +1,6 @@
 #!/bin/bash
 
 
-set -u
-
-
 show_help() {
     echo "Usage: ${0} [--debug] <profile.conf>"
     echo '  --help, -h          - show this help and exit'
@@ -187,7 +184,9 @@ _root_part_uuid=$(blkid --match-tag UUID --output value "${_loop_dev}p2") # Goes
 mount "/dev/mapper/${LUKS_DEV}" "${_mnt_dir}" &>>"${BUILD_LOG}"
 sync; udevadm settle
 
-mkdir --parents "${_mnt_dir}/boot/firmware" 2>/dev/null || true
+if [[ ! -d "${_mnt_dir}/boot/firmware" ]]; then
+    mkdir --parents "${_mnt_dir}/boot/firmware"
+fi
 mount "${_loop_dev}p1" "${_mnt_dir}/boot/firmware" &>>"${BUILD_LOG}"
 sync; udevadm settle
 
@@ -251,7 +250,6 @@ disable_overscan=1
 arm_boost=1
 [all]' | tee "${_mnt_dir}/boot/firmware/config.txt" | tee --append "${BUILD_LOG}" >/dev/null
 
-# TODO: Check if we need it
 echo 'CRYPTSETUP=y' | tee --append "${_mnt_dir}/etc/cryptsetup-initramfs/conf-hook" | tee --append "${BUILD_LOG}" >/dev/null
 
 echo 'Update locale' | tee --append "${BUILD_LOG}"
@@ -278,7 +276,6 @@ ln -sf /dev/null "${_mnt_dir}/etc/systemd/network/99-default.link"
 ln -sf /dev/null "${_mnt_dir}/etc/systemd/network/73-usb-net-by-mac.link"
 
 
-# TODO: Check if we need it. It is likely done during packages installation.
 systemd-nspawn --quiet --no-pager --directory="${_mnt_dir}" locale-gen &>>"${BUILD_LOG}"
 
 
