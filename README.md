@@ -23,13 +23,35 @@ sudo ./rpi-crypt.sh rpi5.conf
 
 # Post installation
 
-After flashing image and booting, you can:
-
-- To expand root partition (can be done on live system):
+- Expand root partition
 ```shell
 parted --script --fix --align=opt /dev/mmcblk0 resizepart 2 100%
 cryptsetup resize cryptroot
 resize2fs /dev/mapper/cryptroot
+```
+
+- Remote LUKS unlock via SSH
+```shell
+# Install dropbear-initramfs
+apt install dropbear-initramfs
+
+# Update `initramfs.conf`
+# Format:         'ip=<client-ip>:<server-ip>:<gw-ip>:<netmask>:<hostname>:<device>:<autoconf>:<dns0-ip>:<dns1-ip>:<ntp0-ip>'
+# Example DHCP:   'ip=::::rpiX.local:eth0:dhcp'
+# Example static: 'ip=192.168.88.2::192.168.88.1:255.255.255.0:rpiX.local:eth0:none'
+# https://www.kernel.org/doc/Documentation/filesystems/nfs/nfsroot.txt
+echo 'ip=::::rpiX.local:eth0:dhcp' >> /etc/initramfs-tools/initramfs.conf
+
+# Update `dropbear.conf`
+echo 'DROPBEAR_OPTIONS="-I 180 -j -k -p 2222 -s -c cryptroot-unlock"' >> /etc/dropbear/initramfs/dropbear.conf
+
+# If there is no SSH keys - generate new one
+ssh-keygen
+cat "${HOME}/.ssh/id_ed25519.pub" >> '/etc/dropbear/initramfs/authorized_keys'
+
+# Rebuild initramfs
+# Make sure there is no `Invalid authorized_keys file, SSH login to initramfs won't work!` warnings
+update-initramfs -k all -u
 ```
 
 
