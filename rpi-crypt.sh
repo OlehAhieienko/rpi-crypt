@@ -42,6 +42,7 @@ cleanup_exit() {
 
 
 # Checks
+SCRIPT_DIR="$(dirname "$(realpath "${0}")")"
 DEBUG_ON=0
 if [[ "${#}" -eq 1 ]]; then
     # Script started with '-h', '--help' or with '--debug', but without profile name
@@ -129,13 +130,23 @@ echo ''
 
 
 echo 'Check dependencies' | tee --append "${BUILD_LOG}"
-apt-get update &>>"${BUILD_LOG}"
-for _pkg in cryptsetup:cryptsetup parted:parted systemd-nspawn:systemd-container; do
-    if ! command -v "${_pkg%:*}" &>/dev/null; then
-        echo "Install ${_pkg#*:}" | tee --append "${BUILD_LOG}"
-        apt-get install --yes --no-install-recommends --no-install-suggests "${_pkg#*:}" &>>"${BUILD_LOG}"
+_missing_pkgs=()
+# Format: <command or absolute file path>:<package>
+for _pkg in cryptsetup:cryptsetup parted:parted systemd-nspawn:systemd-container curl:curl wget:wget mkfs.fat:dosfstools \
+            /usr/share/keyrings/debian-archive-keyring.gpg:debian-archive-keyring; do
+    _dep="${_pkg%:*}"
+    if [[ "${_dep}" == /* ]]; then
+        [[ -e "${_dep}" ]] && continue
+    else
+        command -v "${_dep}" &>/dev/null && continue
     fi
+    _missing_pkgs+=("${_pkg#*:}")
 done
+if [[ "${#_missing_pkgs[@]}" -gt 0 ]]; then
+    echo "Install" "${_missing_pkgs[@]}" | tee --append "${BUILD_LOG}"
+    apt-get update &>>"${BUILD_LOG}"
+    apt-get install --yes --no-install-recommends --no-install-suggests "${_missing_pkgs[@]}" &>>"${BUILD_LOG}"
+fi
 
 
 echo 'Create image (takes some time)' | tee --append "${BUILD_LOG}"
@@ -160,7 +171,7 @@ sync; udevadm settle
 
 echo 'Format LUKS partition' | tee --append "${BUILD_LOG}"
 # shellcheck disable=SC2086
-echo "${LUKS_PASSWORD}" | cryptsetup luksFormat --batch-mode ${LUKS_FORMAT_ARGS} "${_loop_dev}p2"
+printf '%s\n' "${LUKS_PASSWORD}" | cryptsetup luksFormat --batch-mode ${LUKS_FORMAT_ARGS} "${_loop_dev}p2"
 sync; udevadm settle
 
 # Just to make sure
@@ -170,7 +181,7 @@ if ! cryptsetup --batch-mode isLuks "${_loop_dev}p2"; then
 fi
 
 
-echo "${LUKS_PASSWORD}" | cryptsetup open "${_loop_dev}p2" "${LUKS_DEV}"
+printf '%s\n' "${LUKS_PASSWORD}" | cryptsetup open "${_loop_dev}p2" "${LUKS_DEV}"
 sync; udevadm settle
 
 
@@ -196,7 +207,7 @@ sync; udevadm settle
 # Use '--variant minbase' for 'only includes required packages and apt'
 echo 'Debootstrap Debian' | tee --append "${BUILD_LOG}"
 _debootstrap_packages=$(IFS=','; echo "${DEBOOTSTRAP_PACKAGES[*]}") # List to comma separated string
-DEBOOTSTRAP_DIR="$(pwd)/debootstrap"
+DEBOOTSTRAP_DIR="${SCRIPT_DIR}/debootstrap"
 export DEBOOTSTRAP_DIR
 "${DEBOOTSTRAP_DIR}/debootstrap" \
             --arch arm64 \
@@ -216,9 +227,10 @@ Signed-By: /usr/share/keyrings/raspberrypi-archive-keyring.pgp
 " | tee "${_mnt_dir}/etc/apt/sources.list.d/raspi.sources" | tee --append "${BUILD_LOG}" >/dev/null
 
 
-curl --location --silent \
+echo 'Download raspberrypi.com archive keyring' | tee --append "${BUILD_LOG}"
+curl --fail --location --silent --show-error \
     --output "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp" \
-    https://github.com/RPi-Distro/pi-gen/raw/refs/heads/arm64/stage0/00-configure-apt/files/raspberrypi-archive-keyring.pgp
+    https://github.com/RPi-Distro/pi-gen/raw/refs/heads/arm64/stage0/00-configure-apt/files/raspberrypi-archive-keyring.pgp 2>>"${BUILD_LOG}"
 chown root:root "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp"
 chmod 0644 "${_mnt_dir}/usr/share/keyrings/raspberrypi-archive-keyring.pgp"
 
@@ -271,7 +283,8 @@ LC_ADDRESS=en_US.UTF-8
 LC_IDENTIFICATION=en_US.UTF-8
 ' | tee "${_mnt_dir}/etc/default/locale" | tee --append "${BUILD_LOG}" >/dev/null
 
-echo 'Enable predictable network interface names'
+echo 'Disable predictable network interface names' | tee --append "${BUILD_LOG}"
+mkdir --parents "${_mnt_dir}/etc/systemd/network" 2>/dev/null
 ln -sf /dev/null "${_mnt_dir}/etc/systemd/network/99-default.link"
 ln -sf /dev/null "${_mnt_dir}/etc/systemd/network/73-usb-net-by-mac.link"
 
@@ -292,7 +305,7 @@ echo '127.0.0.1       localhost       raspberrypi' | tee "${_mnt_dir}/etc/hosts"
 
 
 echo 'Set root password' | tee --append "${BUILD_LOG}"
-echo "root:${ROOT_PASSWORD}" | systemd-nspawn --quiet --no-pager --pipe --directory="${_mnt_dir}" chpasswd --crypt-method YESCRYPT &>>"${BUILD_LOG}"
+printf '%s\n' "root:${ROOT_PASSWORD}" | systemd-nspawn --quiet --no-pager --pipe --directory="${_mnt_dir}" chpasswd --crypt-method YESCRYPT &>>"${BUILD_LOG}"
 
 
 # Initramfs rebuilt during packages installation - no need to do it manually
